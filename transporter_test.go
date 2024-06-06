@@ -1,7 +1,9 @@
 package s3mover_test
 
 import (
+	"compress/gzip"
 	"context"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fujiwara/s3mover"
+	"github.com/samber/lo"
 )
 
 var testFileNames = []string{"foo", "foo.txt", ".foo.bar", "bar", "bar.txt"}
@@ -18,14 +21,19 @@ var testKeys = []struct {
 	prefix string
 	name   string
 	key    string
+	gz     bool
 }{
-	{"", "foo", "2022/01/02/03/04/foo.gz"},
-	{"xxx", "foo", "xxx/2022/01/02/03/04/foo.gz"},
+	{"", "foo", "2022/01/02/03/04/foo", false},
+	{"xxx", "foo", "xxx/2022/01/02/03/04/foo", false},
+	{"yyy/zzz", "bar.txt", "yyy/zzz/2022/01/02/03/04/bar.txt", false},
+	{"", "foo", "2022/01/02/03/04/foo.gz", true},
+	{"xxx", "foo", "xxx/2022/01/02/03/04/foo.gz", true},
+	{"yyy/zzz", "bar.txt", "yyy/zzz/2022/01/02/03/04/bar.txt.gz", true},
 }
 
 func TestGenKey(t *testing.T) {
 	for _, p := range testKeys {
-		key := s3mover.GenKey(p.prefix, p.name, now)
+		key := s3mover.GenKey(p.prefix, p.name, now, p.gz)
 		if key != p.key {
 			t.Errorf("expected %s, got %s", p.key, key)
 		}
@@ -37,7 +45,7 @@ func TestListFiles(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if len(files) != 2 {
+	if len(files) != 3 {
 		t.Errorf("expected 2 files, got %d", len(files))
 	}
 	for _, f := range files {
@@ -49,15 +57,26 @@ func TestListFiles(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
+	testRun(t, false)
+	testRun(t, true)
+}
+
+func testRun(t *testing.T, gzip bool) {
 	client := s3mover.NewMockS3Client()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	tr, err := s3mover.New(ctx, &s3mover.Config{
+	config := &s3mover.Config{
 		SrcDir:       "./testdata/testrun",
 		Bucket:       "testbucket",
 		KeyPrefix:    "test/run",
 		MaxParallels: 2,
-	})
+		Gzip:         gzip,
+	}
+	if err := config.Validate(); err != nil {
+		t.Error(err)
+	}
+
+	tr, err := s3mover.New(ctx, config)
 	if err != nil {
 		t.Error(err)
 	}
@@ -76,7 +95,7 @@ func TestRun(t *testing.T) {
 			f.WriteString(strings.Repeat(name, 1024))
 			f.Close()
 		}
-		time.Sleep(time.Second * 5) // monitorが一回動くのを待つ
+		time.Sleep(time.Second * 2)
 		cancel()
 	}()
 	go func() {
@@ -88,9 +107,13 @@ func TestRun(t *testing.T) {
 	wg.Wait()
 
 	if len(client.Objects) != 4 {
-		t.Error("expected 4 uploaded objects, got", len(client.Objects))
+		t.Errorf("expected 4 uploaded objects, got %v", lo.Keys(client.Objects))
 	}
 
+	var suffix string
+	if gzip {
+		suffix += ".gz"
+	}
 	for _, name := range testFileNames {
 		if strings.HasPrefix(name, ".") {
 			if _, err := os.Stat("./testdata/testrun/" + name); err != nil {
@@ -104,7 +127,7 @@ func TestRun(t *testing.T) {
 		if _, err := os.Stat("./testdata/testrun/" + name); err == nil {
 			t.Error("files must be removed. " + name)
 		}
-		if _, found := client.Objects["test/run/2022/01/02/03/04/"+name+".gz"]; !found {
+		if _, found := client.Objects["test/run/2022/01/02/03/04/"+name+suffix]; !found {
 			t.Error("files must be uploaded. " + name)
 		}
 	}
@@ -117,4 +140,44 @@ func TestRun(t *testing.T) {
 		t.Error("expected 0 errored objects, got", m.Objects.Errored)
 	}
 	t.Logf("%#v", m)
+}
+
+func TestLoadFileRaw(t *testing.T) {
+	body, size, err := s3mover.LoadFile("./testdata/raw.txt", false, 0)
+	if err != nil {
+		t.Error(err)
+	}
+	defer body.Close()
+	if size != 401 {
+		t.Errorf("expected size 401, got %d", size)
+	}
+	content, err := io.ReadAll(body)
+	if err != nil {
+		t.Error(err)
+	}
+	if len(content) != 401 {
+		t.Errorf("expected content length 401, got %d", len(content))
+	}
+}
+
+func TestLoadFileGz(t *testing.T) {
+	body, size, err := s3mover.LoadFile("./testdata/raw.txt", true, 6)
+	if err != nil {
+		t.Error(err)
+	}
+	defer body.Close()
+	if size >= 401 {
+		t.Errorf("expected size reduced, got %d", size)
+	}
+	r, err := gzip.NewReader(body)
+	if err != nil {
+		t.Error(err)
+	}
+	content, err := io.ReadAll(r)
+	if err != nil {
+		t.Error(err)
+	}
+	if len(content) != 401 {
+		t.Errorf("expected content length 401, got %d", len(content))
+	}
 }

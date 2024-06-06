@@ -30,6 +30,8 @@ const (
 
 	// DiskUsageThreshold は、ディスク使用量がこの閾値を超えた場合に.stopファイルを作成します
 	DiskUsageThreshold = 0.8
+
+	TestObjectKey = ".s3mover-test-object"
 )
 
 var (
@@ -90,13 +92,13 @@ func New(ctx context.Context, config *Config) (*Transporter, error) {
 		metrics:   &Metrics{},
 		now:       time.Now,
 	}
-	if err := tr.init(); err != nil {
-		return nil, err
-	}
 	return tr, nil
 }
 
 func (tr *Transporter) Run(ctx context.Context) error {
+	if err := tr.init(ctx); err != nil {
+		return err
+	}
 	ctx = slogcontext.WithValue(ctx, "component", "transporter")
 	slog.InfoContext(ctx, "starting up")
 	var wg sync.WaitGroup
@@ -119,7 +121,7 @@ func (tr *Transporter) Run(ctx context.Context) error {
 }
 
 // SrcDirが存在して、そこにファイルの書き込みと削除ができるかを確認する処理
-func (tr *Transporter) init() error {
+func (tr *Transporter) init(ctx context.Context) error {
 	// os.Stat はファイルやディレクトリが存在するかを確認するための手段
 	if s, err := os.Stat(tr.config.SrcDir); err != nil {
 		return fmt.Errorf("failed to stat %s: %w", tr.config.SrcDir, err)
@@ -136,9 +138,9 @@ func (tr *Transporter) init() error {
 	}
 
 	// S3 bucket が存在して書き込めるかを確認
-	if _, err := tr.s3.PutObject(context.Background(), &s3.PutObjectInput{
+	if _, err := tr.s3.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        &tr.config.Bucket,
-		Key:           aws.String(genKey(tr.config.KeyPrefix, "s3mover-test-object", tr.now())),
+		Key:           aws.String(genKey(tr.config.KeyPrefix, TestObjectKey, tr.now(), false)),
 		Body:          bytes.NewReader([]byte("test")),
 		ContentLength: aws.Int64(4),
 	}); err != nil {
@@ -239,47 +241,72 @@ func (tr *Transporter) process(ctx context.Context, path string) error {
 }
 
 func (tr *Transporter) upload(ctx context.Context, path string) error {
-	f, err := os.Open(path)
+	key := genKey(tr.config.KeyPrefix, filepath.Base(path), tr.now(), tr.config.Gzip)
+	body, length, err := loadFile(path, tr.config.Gzip, tr.config.GzipLevel)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open file: %w", err)
 	}
-	defer f.Close()
+	defer body.Close()
 
-	// gzip圧縮するためのbufferをpoolから取得
-	buf, returnToPool := getBufferFromPool()
-	defer returnToPool()                   // bufferをpoolに戻す
-	gw, err := gzip.NewWriterLevel(buf, 1) // gzip圧縮レベル1=低圧縮だけど高速
-	if err != nil {
-		return err
-	}
-	// gzip圧縮してbufに書き込む。オンメモリになるけどせいぜい1MB程度なので問題ない
-	if _, err := io.Copy(gw, f); err != nil {
-		return err
-	}
-	gw.Close()
-
-	key := genKey(tr.config.KeyPrefix, filepath.Base(path), tr.now())
 	slog.DebugContext(ctx, "uploading",
 		"s3url", fmt.Sprintf("s3://%s/%s", tr.config.Bucket, key),
-		slog.Int("size", buf.Len()),
+		slog.Int64("size", length),
 	)
 	if _, err := tr.s3.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        &tr.config.Bucket,
 		Key:           &key,
-		Body:          bytes.NewReader(buf.Bytes()),
-		ContentLength: aws.Int64(int64(buf.Len())),
+		Body:          body,
+		ContentLength: aws.Int64(length),
 	}); err != nil {
 		return fmt.Errorf("failed to put object: %w", err)
 	}
 	slog.InfoContext(ctx, "upload completed",
 		"s3url", fmt.Sprintf("s3://%s/%s", tr.config.Bucket, key),
-		slog.Int("size", buf.Len()),
+		slog.Int64("size", length),
 	)
 	return nil
 }
 
-func genKey(prefix, name string, ts time.Time) string {
-	return filepath.Join(prefix, ts.Format("2006/01/02/15/04"), name) + ".gz"
+func genKey(prefix, name string, ts time.Time, gz bool) string {
+	key := filepath.Join(prefix, ts.Format("2006/01/02/15/04"), name)
+	if gz {
+		return key + ".gz"
+	}
+	return key
+}
+
+func loadFile(path string, gz bool, gzipLevel int) (io.ReadCloser, int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var length int64
+	var body io.ReadCloser
+	if gz {
+		// gzip圧縮するためのbufferをpoolから取得
+		buf, returnToPool := getBufferFromPool()
+		defer returnToPool() // bufferをpoolに戻す
+		gw, err := gzip.NewWriterLevel(buf, gzipLevel)
+		if err != nil {
+			return nil, 0, err
+		}
+		// gzip圧縮してbufに書き込む
+		if _, err := io.Copy(gw, f); err != nil {
+			return nil, 0, err
+		}
+		gw.Close()
+		length = int64(buf.Len())
+		body = io.NopCloser(bytes.NewReader(buf.Bytes()))
+	} else {
+		body = f
+		if s, err := f.Stat(); err != nil {
+			return nil, 0, err
+		} else {
+			length = s.Size()
+		}
+	}
+	return body, length, nil
 }
 
 func listFiles(dir string) ([]string, error) {

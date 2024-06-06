@@ -3,6 +3,7 @@ package s3mover
 import (
 	"context"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 var (
 	ListFiles = listFiles
 	GenKey    = genKey
+	LoadFile  = loadFile
 )
 
 func (tr *Transporter) SetMockS3(client *MockS3Client) {
@@ -44,6 +46,12 @@ type MockS3Object struct {
 func (c *MockS3Client) PutObject(ctx context.Context, input *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if strings.Contains(*input.Key, TestObjectKey) {
+		// ignore test object
+		return &s3.PutObjectOutput{}, nil
+	}
+
 	b, _ := io.ReadAll(input.Body)
 	obj := MockS3Object{
 		Bucket:  *input.Bucket,

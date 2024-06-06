@@ -29,6 +29,8 @@ func _main() error {
 	flag.StringVar(&config.Bucket, "bucket", "", "S3 bucket name")
 	flag.StringVar(&config.KeyPrefix, "prefix", "", "S3 key prefix")
 	flag.Int64Var(&config.MaxParallels, "parallels", s3mover.DefaultMaxParallels, "max parallels")
+	flag.BoolVar(&config.Gzip, "gzip", false, "gzip compress")
+	flag.IntVar(&config.GzipLevel, "gzip-level", 6, "gzip compress level (1-9)")
 	flag.BoolVar(&debug, "debug", false, "debug mode")
 	flag.IntVar(&config.StatsServerPort, "port", 9898, "stats server port")
 	flag.VisitAll(overrideWithEnv) // 環境変数でflagの初期値をセットする処理
