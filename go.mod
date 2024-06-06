@@ -5,12 +5,10 @@ go 1.21
 toolchain go1.22.3
 
 require (
+	github.com/PumpkinSeed/slog-context v0.1.2
 	github.com/aws/aws-sdk-go-v2 v1.27.1
 	github.com/aws/aws-sdk-go-v2/config v1.27.17
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.55.0
-	github.com/fatih/color v1.17.0
-	github.com/fujiwara/logutils v1.1.2
-	github.com/mattn/go-isatty v0.0.20
 	golang.org/x/sync v0.7.0
 )
 
@@ -30,6 +28,4 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.24.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.28.11 // indirect
 	github.com/aws/smithy-go v1.20.2 // indirect
-	github.com/mattn/go-colorable v0.1.13 // indirect
-	golang.org/x/sys v0.18.0 // indirect
 )

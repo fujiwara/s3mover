@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	slogcontext "github.com/PumpkinSeed/slog-context"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -41,6 +42,7 @@ func init() {
 	} else {
 		TZ = jst
 	}
+	slog.SetDefault(slog.New(slogcontext.NewHandler(slog.NewJSONHandler(os.Stdout, nil))))
 }
 
 // bytes.Bufferのpool
@@ -96,22 +98,24 @@ func New(ctx context.Context, config *Config) (*Transporter, error) {
 }
 
 func (tr *Transporter) Run(ctx context.Context) error {
+	ctx = slogcontext.WithValue(ctx, "component", "transporter")
+	slog.InfoContext(ctx, "starting up")
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		if err := tr.run(ctx); err != nil && err != context.Canceled {
-			log.Println("[error]", err)
+			slog.ErrorContext(ctx, err.Error())
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		if err := tr.runStatsServer(ctx); err != nil && err != context.Canceled {
-			log.Println("[error]", err)
+			slog.ErrorContext(ctx, err.Error())
 		}
 	}()
 	wg.Wait()
-	log.Println("[info] shutdown")
+	slog.InfoContext(ctx, "shutdown")
 	return nil
 }
 
@@ -154,20 +158,25 @@ func (tr *Transporter) run(ctx context.Context) error {
 		}
 		processed, total, err := tr.runOnce(ctx)
 		if err != nil {
-			log.Printf("[warn] retry after %s %s", RetryWait, err)
+			slog.WarnContext(ctx, fmt.Sprintf("retry after %s", RetryWait), "error", err.Error())
 			tr.sleep(ctx, RetryWait)
 			continue
 		}
 		if total == 0 {
-			log.Println("[debug] no files to upload")
+			slog.DebugContext(ctx, "no files to upload")
 			tr.sleep(ctx, RetryWait)
 			continue
 		}
 		if processed == total {
-			log.Printf("[info] processed %d of %d", processed, total)
+			slog.InfoContext(ctx, "succeeded to transport all files",
+				slog.Int64("processed", processed),
+				slog.Int64("total", total),
+			)
 		} else {
-			log.Printf("[warn] processed %d of %d", processed, total)
-			tr.sleep(ctx, RetryWait)
+			slog.WarnContext(ctx, "succeeded to transport some files, but some files are remaining",
+				slog.Int64("processed", processed),
+				slog.Int64("total", total),
+			)
 		}
 	}
 }
@@ -194,7 +203,7 @@ func (tr *Transporter) runOnce(ctx context.Context) (int64, int64, error) {
 			defer wg.Done()
 			if err := tr.process(ctx, path); err != nil {
 				tr.metrics.PutObject(false)
-				log.Println("[warn]", err)
+				slog.WarnContext(ctx, err.Error())
 			} else {
 				tr.metrics.PutObject(true)
 				atomic.AddInt64(&processed, 1)
@@ -206,16 +215,16 @@ func (tr *Transporter) runOnce(ctx context.Context) (int64, int64, error) {
 }
 
 func (tr *Transporter) process(ctx context.Context, path string) error {
-	log.Println("[debug] processing...", path)
+	slog.DebugContext(ctx, "processing", "path", path)
 	if err := tr.upload(ctx, path); err != nil {
 		return fmt.Errorf("failed to upload %s: %w", path, err)
 	}
-	log.Println("[debug] uploaded successfully", path)
-	log.Println("[debug] removing...", path)
+	slog.DebugContext(ctx, "uploaded successfully", "path", path)
+	slog.DebugContext(ctx, "removing...", "path", path)
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("failed to remove file %s: %w", path, err)
 	}
-	log.Println("[debug] removed successfully", path)
+	slog.DebugContext(ctx, "removed successfully", "path", path)
 	return nil
 }
 
@@ -240,15 +249,22 @@ func (tr *Transporter) upload(ctx context.Context, path string) error {
 	gw.Close()
 
 	key := genKey(tr.config.KeyPrefix, filepath.Base(path), tr.now())
-	log.Printf("[debug] uploading s3://%s/%s (%d bytes)", tr.config.Bucket, key, buf.Len())
+	slog.DebugContext(ctx, "uploading",
+		"s3url", fmt.Sprintf("s3://%s/%s", tr.config.Bucket, key),
+		slog.Int("size", buf.Len()),
+	)
 	if _, err := tr.s3.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        &tr.config.Bucket,
 		Key:           &key,
 		Body:          bytes.NewReader(buf.Bytes()),
 		ContentLength: aws.Int64(int64(buf.Len())),
 	}); err != nil {
-		return err
+		return fmt.Errorf("failed to put object: %w", err)
 	}
+	slog.DebugContext(ctx, "uploaded successfully",
+		"s3url", fmt.Sprintf("s3://%s/%s", tr.config.Bucket, key),
+		slog.Int("size", buf.Len()),
+	)
 	return nil
 }
 

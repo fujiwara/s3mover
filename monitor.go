@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync/atomic"
+
+	slogcontext "github.com/PumpkinSeed/slog-context"
 )
 
 type Metrics struct {
@@ -40,6 +42,7 @@ func NewMetrics() *Metrics {
 
 // mackerel-plugin-json でのメトリック取得用HTTP server
 func (tr *Transporter) runStatsServer(ctx context.Context) error {
+	ctx = slogcontext.WithValue(ctx, "component", "stats-server")
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-type", "application/json")
 		enc := json.NewEncoder(w)
@@ -58,7 +61,7 @@ func (tr *Transporter) runStatsServer(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("[info] starting up stats server on %s", l.Addr())
+	slog.InfoContext(ctx, "starting up stats server", "listen", l.Addr().String())
 
 	go func() {
 		if err := srv.Serve(l); err != nil {
@@ -66,12 +69,12 @@ func (tr *Transporter) runStatsServer(ctx context.Context) error {
 			case <-ctx.Done():
 				// 既にcontextが終了しているなら正常終了なのでなにもしない
 			default:
-				log.Println("[error] failed to serve stats server", err)
+				slog.ErrorContext(ctx, "failed to serve stats server", "error", err.Error())
 			}
 		}
 	}()
 
 	<-ctx.Done()
-	log.Printf("[info] shutting down stats server")
+	slog.InfoContext(ctx, "shutting down stats server")
 	return srv.Shutdown(ctx)
 }
