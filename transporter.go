@@ -42,7 +42,6 @@ func init() {
 	} else {
 		TZ = jst
 	}
-	slog.SetDefault(slog.New(slogcontext.NewHandler(slog.NewJSONHandler(os.Stdout, nil))))
 }
 
 // bytes.Bufferのpool
@@ -135,6 +134,16 @@ func (tr *Transporter) init() error {
 			return fmt.Errorf("failed to remove %s: %w", tr.startFile, err)
 		}
 	}
+
+	// S3 bucket が存在して書き込めるかを確認
+	if _, err := tr.s3.PutObject(context.Background(), &s3.PutObjectInput{
+		Bucket:        &tr.config.Bucket,
+		Key:           aws.String(genKey(tr.config.KeyPrefix, "s3mover-test-object", tr.now())),
+		Body:          bytes.NewReader([]byte("test")),
+		ContentLength: aws.Int64(4),
+	}); err != nil {
+		return fmt.Errorf("failed to put object to %s: %w", tr.config.Bucket, err)
+	}
 	return nil
 }
 
@@ -167,16 +176,17 @@ func (tr *Transporter) run(ctx context.Context) error {
 			tr.sleep(ctx, RetryWait)
 			continue
 		}
-		if processed == total {
+		if processed > 0 && processed == total {
 			slog.InfoContext(ctx, "succeeded to transport all files",
 				slog.Int64("processed", processed),
 				slog.Int64("total", total),
 			)
 		} else {
-			slog.WarnContext(ctx, "succeeded to transport some files, but some files are remaining",
+			slog.WarnContext(ctx, "some files are remaining",
 				slog.Int64("processed", processed),
 				slog.Int64("total", total),
 			)
+			tr.sleep(ctx, RetryWait)
 		}
 	}
 }
@@ -261,7 +271,7 @@ func (tr *Transporter) upload(ctx context.Context, path string) error {
 	}); err != nil {
 		return fmt.Errorf("failed to put object: %w", err)
 	}
-	slog.DebugContext(ctx, "uploaded successfully",
+	slog.InfoContext(ctx, "upload completed",
 		"s3url", fmt.Sprintf("s3://%s/%s", tr.config.Bucket, key),
 		slog.Int("size", buf.Len()),
 	)

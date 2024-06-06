@@ -9,7 +9,9 @@ import (
 	"strings"
 	"syscall"
 
+	slogcontext "github.com/PumpkinSeed/slog-context"
 	"github.com/fujiwara/s3mover"
+	"github.com/mattn/go-isatty"
 )
 
 func main() {
@@ -17,21 +19,34 @@ func main() {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
+	slog.Info("s3mover stopped")
 }
 
 func _main() error {
-	var logLevel string
+	var debug bool
 	config := &s3mover.Config{}
 	flag.StringVar(&config.SrcDir, "src", "", "source directory")
 	flag.StringVar(&config.Bucket, "bucket", "", "S3 bucket name")
 	flag.StringVar(&config.KeyPrefix, "prefix", "", "S3 key prefix")
 	flag.Int64Var(&config.MaxParallels, "parallels", s3mover.DefaultMaxParallels, "max parallels")
-	flag.StringVar(&logLevel, "log-level", "info", "log level")
+	flag.BoolVar(&debug, "debug", false, "debug mode")
 	flag.IntVar(&config.StatsServerPort, "port", 9898, "stats server port")
 	flag.VisitAll(overrideWithEnv) // 環境変数でflagの初期値をセットする処理
 	flag.Parse()
 
-	slog.Info("starting up")
+	var h slog.Handler
+	logLevel := slog.LevelInfo
+	if debug {
+		logLevel = slog.LevelDebug
+	}
+	if isatty.IsTerminal(os.Stdout.Fd()) {
+		h = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
+	} else {
+		h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
+	}
+	slog.SetDefault(slog.New(slogcontext.NewHandler(h)))
+
+	slog.Info("starting up s3mover")
 	if err := config.Validate(); err != nil {
 		return err
 	}
@@ -56,7 +71,7 @@ func _main() error {
 func overrideWithEnv(f *flag.Flag) {
 	name := strings.ToUpper(f.Name)
 	name = strings.Replace(name, "-", "_", -1)
-	if s := os.Getenv("TRANSPORTER_" + name); s != "" {
+	if s := os.Getenv("S3MOVER_" + name); s != "" {
 		f.Value.Set(s)
 	}
 }

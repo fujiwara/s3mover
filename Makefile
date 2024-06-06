@@ -1,6 +1,6 @@
 .PHONY: clean test
 
-s3mover: go.* *.go
+s3mover: go.* *.go cmd/s3mover/*.go
 	go build -o $@ cmd/s3mover/main.go
 
 clean:
