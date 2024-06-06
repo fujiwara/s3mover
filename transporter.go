@@ -32,6 +32,8 @@ const (
 	DiskUsageThreshold = 0.8
 
 	TestObjectKey = ".s3mover-test-object"
+
+	DefaultTimeFormat = "2006/01/02/15"
 )
 
 var (
@@ -140,7 +142,7 @@ func (tr *Transporter) init(ctx context.Context) error {
 	// S3 bucket が存在して書き込めるかを確認
 	if _, err := tr.s3.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        &tr.config.Bucket,
-		Key:           aws.String(genKey(tr.config.KeyPrefix, TestObjectKey, tr.now(), false)),
+		Key:           aws.String(genKey(tr.config.KeyPrefix, TestObjectKey, tr.now(), false, tr.config.TimeFormat)),
 		Body:          bytes.NewReader([]byte("test")),
 		ContentLength: aws.Int64(4),
 	}); err != nil {
@@ -241,7 +243,7 @@ func (tr *Transporter) process(ctx context.Context, path string) error {
 }
 
 func (tr *Transporter) upload(ctx context.Context, path string) error {
-	key := genKey(tr.config.KeyPrefix, filepath.Base(path), tr.now(), tr.config.Gzip)
+	key := genKey(tr.config.KeyPrefix, filepath.Base(path), tr.now(), tr.config.Gzip, tr.config.TimeFormat)
 	body, length, err := loadFile(path, tr.config.Gzip, tr.config.GzipLevel)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
@@ -267,8 +269,11 @@ func (tr *Transporter) upload(ctx context.Context, path string) error {
 	return nil
 }
 
-func genKey(prefix, name string, ts time.Time, gz bool) string {
-	key := filepath.Join(prefix, ts.Format("2006/01/02/15/04"), name)
+func genKey(prefix, name string, ts time.Time, gz bool, format string) string {
+	if format == "" {
+		format = DefaultTimeFormat
+	}
+	key := filepath.Join(prefix, ts.Format(format), name)
 	if gz {
 		return key + ".gz"
 	}

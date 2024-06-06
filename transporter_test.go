@@ -23,17 +23,17 @@ var testKeys = []struct {
 	key    string
 	gz     bool
 }{
-	{"", "foo", "2022/01/02/03/04/foo", false},
-	{"xxx", "foo", "xxx/2022/01/02/03/04/foo", false},
-	{"yyy/zzz", "bar.txt", "yyy/zzz/2022/01/02/03/04/bar.txt", false},
-	{"", "foo", "2022/01/02/03/04/foo.gz", true},
-	{"xxx", "foo", "xxx/2022/01/02/03/04/foo.gz", true},
-	{"yyy/zzz", "bar.txt", "yyy/zzz/2022/01/02/03/04/bar.txt.gz", true},
+	{"", "foo", "2022/01/02/03/foo", false},
+	{"xxx", "foo", "xxx/2022/01/02/03/foo", false},
+	{"yyy/zzz", "bar.txt", "yyy/zzz/2022/01/02/03/bar.txt", false},
+	{"", "foo", "2022/01/02/03/foo.gz", true},
+	{"xxx", "foo", "xxx/2022/01/02/03/foo.gz", true},
+	{"yyy/zzz", "bar.txt", "yyy/zzz/2022/01/02/03/bar.txt.gz", true},
 }
 
 func TestGenKey(t *testing.T) {
 	for _, p := range testKeys {
-		key := s3mover.GenKey(p.prefix, p.name, now, p.gz)
+		key := s3mover.GenKey(p.prefix, p.name, now, p.gz, "")
 		if key != p.key {
 			t.Errorf("expected %s, got %s", p.key, key)
 		}
@@ -119,7 +119,7 @@ func testRun(t *testing.T, gzip bool) {
 			if _, err := os.Stat("./testdata/testrun/" + name); err != nil {
 				t.Error("dot files must not be removed. " + name)
 			}
-			if _, found := client.Objects["test/run/2022/01/02/03/04/"+name]; found {
+			if _, found := client.Objects["test/run/2022/01/02/03/"+name]; found {
 				t.Error("dot files must not be uploaded. " + name)
 			}
 			continue
@@ -127,7 +127,7 @@ func testRun(t *testing.T, gzip bool) {
 		if _, err := os.Stat("./testdata/testrun/" + name); err == nil {
 			t.Error("files must be removed. " + name)
 		}
-		if _, found := client.Objects["test/run/2022/01/02/03/04/"+name+suffix]; !found {
+		if _, found := client.Objects["test/run/2022/01/02/03/"+name+suffix]; !found {
 			t.Error("files must be uploaded. " + name)
 		}
 	}

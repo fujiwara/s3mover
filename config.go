@@ -12,6 +12,7 @@ type Config struct {
 	StatsServerPort int
 	Gzip            bool
 	GzipLevel       int
+	TimeFormat      string
 }
 
 const DefaultGzipLevel = 6

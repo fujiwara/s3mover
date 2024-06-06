@@ -31,6 +31,7 @@ func _main() error {
 	flag.Int64Var(&config.MaxParallels, "parallels", s3mover.DefaultMaxParallels, "max parallels")
 	flag.BoolVar(&config.Gzip, "gzip", false, "gzip compress")
 	flag.IntVar(&config.GzipLevel, "gzip-level", 6, "gzip compress level (1-9)")
+	flag.StringVar(&config.TimeFormat, "time-format", s3mover.DefaultTimeFormat, "time format")
 	flag.BoolVar(&debug, "debug", false, "debug mode")
 	flag.IntVar(&config.StatsServerPort, "port", 9898, "stats server port")
 	flag.VisitAll(overrideWithEnv) // 環境変数でflagの初期値をセットする処理
