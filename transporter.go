@@ -22,17 +22,16 @@ import (
 )
 
 const (
-	// DefaultMaxParallels は、S3への転送処理の最大同時実行数デフォルト値です
+	// DefaultMaxParallels is the default value of the maximum number of concurrent executions of the transfer process to S3.
 	DefaultMaxParallels = 1
 
-	// RetryWait は、S3への転送処理のリトライ間隔です
+	// RetryWait is the interval for retrying the transfer process to S3.
 	RetryWait = time.Second
 
-	// DiskUsageThreshold は、ディスク使用量がこの閾値を超えた場合に.stopファイルを作成します
-	DiskUsageThreshold = 0.8
-
+	// TestObjectKey is the key of the test object.
 	TestObjectKey = ".s3mover-test-object"
 
+	// DefaultTimeFormat is the default time format for the key of the object in S3.
 	DefaultTimeFormat = "2006/01/02/15"
 )
 
@@ -44,16 +43,14 @@ func init() {
 	TZ = time.Local
 }
 
-// bytes.Bufferのpool
-// 何度もbytes.Bufferを作成するのは非効率なのでsync.Poolで使い回す
+// pool of bytes.Buffer
+// reuse buffer for gzip compression
 var pool = sync.Pool{
 	New: func() interface{} {
 		return new(bytes.Buffer)
 	},
 }
 
-// getBufferは、bytes.Bufferをpoolから取得します
-// 2番目の返値は、bytes.Bufferをpoolに戻すための関数です
 func getBufferFromPool() (*bytes.Buffer, func()) {
 	buf := pool.Get().(*bytes.Buffer)
 	return buf, func() {
@@ -62,10 +59,12 @@ func getBufferFromPool() (*bytes.Buffer, func()) {
 	}
 }
 
+// S3Client is an interface for the S3 client.
 type S3Client interface {
 	PutObject(ctx context.Context, input *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 }
 
+// Transporter represents a file transfer process to S3.
 type Transporter struct {
 	s3        S3Client
 	config    *Config
@@ -75,6 +74,7 @@ type Transporter struct {
 	metrics   *Metrics
 }
 
+// New creates a new Transporter.
 func New(ctx context.Context, config *Config) (*Transporter, error) {
 	cfg, err := awsconfig.LoadDefaultConfig(ctx)
 	if err != nil {
@@ -91,6 +91,7 @@ func New(ctx context.Context, config *Config) (*Transporter, error) {
 	return tr, nil
 }
 
+// Run starts the Transporter.
 func (tr *Transporter) Run(ctx context.Context) error {
 	if err := tr.init(ctx); err != nil {
 		return err
@@ -116,9 +117,8 @@ func (tr *Transporter) Run(ctx context.Context) error {
 	return nil
 }
 
-// SrcDirが存在して、そこにファイルの書き込みと削除ができるかを確認する処理
+// init initializes the Transporter. checks the source directory and S3 bucket.
 func (tr *Transporter) init(ctx context.Context) error {
-	// os.Stat はファイルやディレクトリが存在するかを確認するための手段
 	if s, err := os.Stat(tr.config.SrcDir); err != nil {
 		return fmt.Errorf("failed to stat %s: %w", tr.config.SrcDir, err)
 	} else if !s.IsDir() {
@@ -133,7 +133,7 @@ func (tr *Transporter) init(ctx context.Context) error {
 		}
 	}
 
-	// S3 bucket が存在して書き込めるかを確認
+	// check if the bucket exists and the user has permission to write
 	if _, err := tr.s3.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        &tr.config.Bucket,
 		Key:           aws.String(genKey(tr.config.KeyPrefix, TestObjectKey, time.Now(), false, tr.config.TimeFormat)),
@@ -145,8 +145,7 @@ func (tr *Transporter) init(ctx context.Context) error {
 	return nil
 }
 
-// sleepは、指定した時間だけsleepします
-// time.Sleepと違うのはctxがキャンセルされたときにsleepを中断することです
+// sleep sleeps for d duration. It differs from time.Sleep in that it interrupts sleep when ctx is canceled.
 func (tr *Transporter) sleep(ctx context.Context, d time.Duration) {
 	tm := time.After(d)
 	select {
@@ -205,9 +204,9 @@ func (tr *Transporter) runOnce(ctx context.Context) (int64, int64, error) {
 	for _, path := range paths {
 		path := path
 		wg.Add(1)
-		tr.sem.Acquire(ctx, 1) // セマフォを1つ取得してprocessをはじめる並列度をコントロール
+		tr.sem.Acquire(ctx, 1)
 		go func() {
-			defer tr.sem.Release(1) // セマフォを解放
+			defer tr.sem.Release(1)
 			defer wg.Done()
 			if err := tr.process(ctx, path); err != nil {
 				tr.metrics.PutObject(false)
@@ -218,7 +217,7 @@ func (tr *Transporter) runOnce(ctx context.Context) (int64, int64, error) {
 			}
 		}()
 	}
-	wg.Wait() // 全てのprocessが終わるまで待ち合わせる
+	wg.Wait()
 	return processed, total, nil
 }
 
@@ -287,14 +286,12 @@ func loadFile(path string, gz bool, gzipLevel int) (io.ReadCloser, int64, time.T
 	var length int64
 	var body io.ReadCloser
 	if gz {
-		// gzip圧縮するためのbufferをpoolから取得
 		buf, returnToPool := getBufferFromPool()
 		defer returnToPool() // bufferをpoolに戻す
 		gw, err := gzip.NewWriterLevel(buf, gzipLevel)
 		if err != nil {
 			return nil, 0, time.Time{}, err
 		}
-		// gzip圧縮してbufに書き込む
 		if _, err := io.Copy(gw, f); err != nil {
 			return nil, 0, time.Time{}, err
 		}
@@ -315,7 +312,7 @@ func listFiles(dir string) ([]string, error) {
 	}
 	var paths []string
 	for _, file := range files {
-		// ディレクトリと dot file は無視。サブディレクトリは辿らない
+		// ignore directories and hidden files
 		if file.IsDir() || strings.HasPrefix(file.Name(), ".") {
 			continue
 		}

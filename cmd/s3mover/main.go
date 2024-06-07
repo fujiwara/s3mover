@@ -32,7 +32,7 @@ func _main() error {
 	flag.StringVar(&config.TimeFormat, "time-format", s3mover.DefaultTimeFormat, "time format")
 	flag.BoolVar(&debug, "debug", false, "debug mode")
 	flag.IntVar(&config.StatsServerPort, "port", 9898, "stats server port")
-	flag.VisitAll(overrideWithEnv) // 環境変数でflagの初期値をセットする処理
+	flag.VisitAll(overrideWithEnv) // set default value from environment variable
 	flag.Parse()
 
 	s3mover.SetLogger(debug)
@@ -43,7 +43,6 @@ func _main() error {
 	}
 	slog.Info("configurations loaded", "config", config)
 
-	// シグナルを受けたときにcancelされるctx
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -55,10 +54,10 @@ func _main() error {
 	if err != nil {
 		return err
 	}
-	return tr.Run(ctx) // ctxがcancelされるまで帰ってこない
+	return tr.Run(ctx)
 }
 
-// overrideWithEnv flagの値を環境変数から取得して上書きする
+// overrideWithEnv overrides flag value with environment variable.
 func overrideWithEnv(f *flag.Flag) {
 	name := strings.ToUpper(f.Name)
 	name = strings.Replace(name, "-", "_", -1)

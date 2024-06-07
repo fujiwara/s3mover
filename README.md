@@ -38,6 +38,10 @@ Usage of s3mover:
         time format (default "2006/01/02/15/04")
 ```
 
+All flags accept environment variables with the prefix `S3MOVER_`. For example, the `-bucket` flag can be set with the `S3MOVER_BUCKET` environment variable.
+
+The boolean flags can be set with `true`, `1`, `t`, `T`, `TRUE`, `True`, `false`, `0`, `f`, `F`, `FALSE`, or `False`. For example, the `-gzip` flag can be set with the `S3MOVER_GZIP=true` environment variable.
+
 ## Example
 
 ```console
@@ -47,7 +51,7 @@ $ s3mover -src /path/to/local -bucket mybucket -prefix myprefix/ -gzip
 1. s3mover watches the `/path/to/local` directory.
 2. When a new file is created in the directory, s3mover reads the file and uploads it to the mybucket bucket.
    - The S3 key is `myprefix/YYYY/MM/DD/HH/filename.gz`.
-   - If the -gzip option is specified, the file is compressed with gzip before uploading.
+   - If the `-gzip` option is specified, the file is compressed with gzip before uploading.
 3. s3mover removes the file from the local directory after the upload is completed.
 4. s3mover repeats the above steps.
 
@@ -99,6 +103,8 @@ The prefix of the S3 key. The S3 key is constructed as follows (this is required
 
 The time format used in the S3 key. The default is `2006/01/02/15/04`, which is formatted as Go's [`time.Format`](https://pkg.go.dev/time#pkg-constants).
 
+s3mover uses a local time to determine the time the file was created. If you want to use UTC, set the `TZ` environment variable to `UTC`.
+
 ### `-gzip`
 
 If specified, the file is compressed with gzip before uploading.
@@ -134,6 +140,8 @@ $ curl -s localhost:9898/stats/metrics | jq .
   - This value indicates the number of files that are not uploaded in the local directory.
   - If the number increases, it may be a sign that the agent is not working properly.
   - If the number is always large, you may need to increase the number of parallels.
+
+`-port=0` disables the stats server.
 
 ## LICENSE
 

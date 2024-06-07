@@ -40,9 +40,14 @@ func NewMetrics() *Metrics {
 	return &Metrics{}
 }
 
-// mackerel-plugin-json でのメトリック取得用HTTP server
+// HTTP server to serve metrics
 func (tr *Transporter) runStatsServer(ctx context.Context) error {
 	ctx = slogcontext.WithValue(ctx, "component", "stats-server")
+	if tr.config.StatsServerPort == 0 {
+		slog.InfoContext(ctx, "stats server is disabled")
+		return nil
+	}
+
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-type", "application/json")
 		enc := json.NewEncoder(w)
@@ -67,7 +72,7 @@ func (tr *Transporter) runStatsServer(ctx context.Context) error {
 		if err := srv.Serve(l); err != nil {
 			select {
 			case <-ctx.Done():
-				// 既にcontextが終了しているなら正常終了なのでなにもしない
+				// normal shutdown
 			default:
 				slog.ErrorContext(ctx, "failed to serve stats server", "error", err.Error())
 			}
