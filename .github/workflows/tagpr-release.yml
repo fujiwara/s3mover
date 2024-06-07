@@ -61,3 +61,4 @@ jobs:
       - name: docker
         run: |
           make docker-build-and-push
+        if: ${{ steps.tagpr.outputs.tag != '' || github.event_name == 'workflow_dispatch' }}
