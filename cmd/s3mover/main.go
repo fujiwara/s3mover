@@ -9,9 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	slogcontext "github.com/PumpkinSeed/slog-context"
 	"github.com/fujiwara/s3mover"
-	"github.com/mattn/go-isatty"
 )
 
 func main() {
@@ -37,17 +35,7 @@ func _main() error {
 	flag.VisitAll(overrideWithEnv) // 環境変数でflagの初期値をセットする処理
 	flag.Parse()
 
-	var h slog.Handler
-	logLevel := slog.LevelInfo
-	if debug {
-		logLevel = slog.LevelDebug
-	}
-	if isatty.IsTerminal(os.Stdout.Fd()) {
-		h = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
-	} else {
-		h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
-	}
-	slog.SetDefault(slog.New(slogcontext.NewHandler(h)))
+	s3mover.SetLogger(debug)
 
 	slog.Info("starting up s3mover")
 	if err := config.Validate(); err != nil {

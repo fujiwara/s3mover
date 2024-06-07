@@ -41,11 +41,7 @@ var (
 )
 
 func init() {
-	if jst, err := time.LoadLocation("Asia/Tokyo"); err != nil {
-		panic(err)
-	} else {
-		TZ = jst
-	}
+	TZ = time.Local
 }
 
 // bytes.Bufferのpool
@@ -77,7 +73,6 @@ type Transporter struct {
 	startFile string
 	stopFile  string
 	metrics   *Metrics
-	now       func() time.Time
 }
 
 func New(ctx context.Context, config *Config) (*Transporter, error) {
@@ -92,7 +87,6 @@ func New(ctx context.Context, config *Config) (*Transporter, error) {
 		stopFile:  filepath.Join(config.SrcDir, ".stop"),
 		startFile: filepath.Join(config.SrcDir, ".start"),
 		metrics:   &Metrics{},
-		now:       time.Now,
 	}
 	return tr, nil
 }
@@ -142,7 +136,7 @@ func (tr *Transporter) init(ctx context.Context) error {
 	// S3 bucket が存在して書き込めるかを確認
 	if _, err := tr.s3.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        &tr.config.Bucket,
-		Key:           aws.String(genKey(tr.config.KeyPrefix, TestObjectKey, tr.now(), false, tr.config.TimeFormat)),
+		Key:           aws.String(genKey(tr.config.KeyPrefix, TestObjectKey, time.Now(), false, tr.config.TimeFormat)),
 		Body:          bytes.NewReader([]byte("test")),
 		ContentLength: aws.Int64(4),
 	}); err != nil {
@@ -243,12 +237,12 @@ func (tr *Transporter) process(ctx context.Context, path string) error {
 }
 
 func (tr *Transporter) upload(ctx context.Context, path string) error {
-	key := genKey(tr.config.KeyPrefix, filepath.Base(path), tr.now(), tr.config.Gzip, tr.config.TimeFormat)
-	body, length, err := loadFile(path, tr.config.Gzip, tr.config.GzipLevel)
+	body, length, ts, err := loadFile(path, tr.config.Gzip, tr.config.GzipLevel)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer body.Close()
+	key := genKey(tr.config.KeyPrefix, filepath.Base(path), ts, tr.config.Gzip, tr.config.TimeFormat)
 
 	slog.DebugContext(ctx, "uploading",
 		"s3url", fmt.Sprintf("s3://%s/%s", tr.config.Bucket, key),
@@ -273,17 +267,21 @@ func genKey(prefix, name string, ts time.Time, gz bool, format string) string {
 	if format == "" {
 		format = DefaultTimeFormat
 	}
-	key := filepath.Join(prefix, ts.Format(format), name)
+	key := filepath.Join(prefix, ts.In(TZ).Format(format), name)
 	if gz {
 		return key + ".gz"
 	}
 	return key
 }
 
-func loadFile(path string, gz bool, gzipLevel int) (io.ReadCloser, int64, error) {
+func loadFile(path string, gz bool, gzipLevel int) (io.ReadCloser, int64, time.Time, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, time.Time{}, err
+	}
+	stat, err := f.Stat()
+	if err != nil {
+		return nil, 0, time.Time{}, err
 	}
 
 	var length int64
@@ -294,24 +292,20 @@ func loadFile(path string, gz bool, gzipLevel int) (io.ReadCloser, int64, error)
 		defer returnToPool() // bufferをpoolに戻す
 		gw, err := gzip.NewWriterLevel(buf, gzipLevel)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, time.Time{}, err
 		}
 		// gzip圧縮してbufに書き込む
 		if _, err := io.Copy(gw, f); err != nil {
-			return nil, 0, err
+			return nil, 0, time.Time{}, err
 		}
 		gw.Close()
 		length = int64(buf.Len())
 		body = io.NopCloser(bytes.NewReader(buf.Bytes()))
 	} else {
 		body = f
-		if s, err := f.Stat(); err != nil {
-			return nil, 0, err
-		} else {
-			length = s.Size()
-		}
+		length = stat.Size()
 	}
-	return body, length, nil
+	return body, length, stat.ModTime(), nil
 }
 
 func listFiles(dir string) ([]string, error) {

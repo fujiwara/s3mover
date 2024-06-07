@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -57,6 +58,7 @@ func TestListFiles(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
+	s3mover.SetLogger(false)
 	testRun(t, false)
 	testRun(t, true)
 }
@@ -81,7 +83,8 @@ func testRun(t *testing.T, gzip bool) {
 		t.Error(err)
 	}
 	tr.SetMockS3(client)
-	tr.SetMockTime(now)
+
+	testModTimes := make(map[string]time.Time, len(testFileNames))
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -91,11 +94,17 @@ func testRun(t *testing.T, gzip bool) {
 			if i%3 == 0 {
 				time.Sleep(time.Millisecond * 500)
 			}
-			f, _ := os.Create("./testdata/testrun/" + name)
+			f, err := os.Create("./testdata/testrun/." + name)
+			if err != nil {
+				t.Error(err)
+			}
 			f.WriteString(strings.Repeat(name, 1024))
 			f.Close()
+			os.Rename("./testdata/testrun/."+name, "./testdata/testrun/"+name)
+			testModTimes[name] = time.Now()
+			slog.Info("created", "file", name, "modtime", testModTimes[name])
 		}
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 4)
 		cancel()
 	}()
 	go func() {
@@ -115,11 +124,12 @@ func testRun(t *testing.T, gzip bool) {
 		suffix += ".gz"
 	}
 	for _, name := range testFileNames {
+		key := s3mover.GenKey("test/run", name, testModTimes[name], gzip, "")
 		if strings.HasPrefix(name, ".") {
 			if _, err := os.Stat("./testdata/testrun/" + name); err != nil {
 				t.Error("dot files must not be removed. " + name)
 			}
-			if _, found := client.Objects["test/run/2022/01/02/03/"+name]; found {
+			if _, found := client.Objects[key]; found {
 				t.Error("dot files must not be uploaded. " + name)
 			}
 			continue
@@ -127,7 +137,7 @@ func testRun(t *testing.T, gzip bool) {
 		if _, err := os.Stat("./testdata/testrun/" + name); err == nil {
 			t.Error("files must be removed. " + name)
 		}
-		if _, found := client.Objects["test/run/2022/01/02/03/"+name+suffix]; !found {
+		if _, found := client.Objects[key]; !found {
 			t.Error("files must be uploaded. " + name)
 		}
 	}
@@ -143,7 +153,7 @@ func testRun(t *testing.T, gzip bool) {
 }
 
 func TestLoadFileRaw(t *testing.T) {
-	body, size, err := s3mover.LoadFile("./testdata/raw.txt", false, 0)
+	body, size, _, err := s3mover.LoadFile("./testdata/raw.txt", false, 0)
 	if err != nil {
 		t.Error(err)
 	}
@@ -161,7 +171,7 @@ func TestLoadFileRaw(t *testing.T) {
 }
 
 func TestLoadFileGz(t *testing.T) {
-	body, size, err := s3mover.LoadFile("./testdata/raw.txt", true, 6)
+	body, size, _, err := s3mover.LoadFile("./testdata/raw.txt", true, 6)
 	if err != nil {
 		t.Error(err)
 	}

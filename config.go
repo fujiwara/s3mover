@@ -2,6 +2,11 @@ package s3mover
 
 import (
 	"errors"
+	"log/slog"
+	"os"
+
+	slogcontext "github.com/PumpkinSeed/slog-context"
+	"github.com/mattn/go-isatty"
 )
 
 type Config struct {
@@ -36,4 +41,18 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func SetLogger(debug bool) {
+	var h slog.Handler
+	logLevel := slog.LevelInfo
+	if debug {
+		logLevel = slog.LevelDebug
+	}
+	if isatty.IsTerminal(os.Stdout.Fd()) {
+		h = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
+	} else {
+		h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
+	}
+	slog.SetDefault(slog.New(slogcontext.NewHandler(h)))
 }

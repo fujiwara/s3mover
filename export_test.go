@@ -5,7 +5,6 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -18,10 +17,6 @@ var (
 
 func (tr *Transporter) SetMockS3(client *MockS3Client) {
 	tr.s3 = client
-}
-
-func (tr *Transporter) SetMockTime(ts time.Time) {
-	tr.now = func() time.Time { return ts }
 }
 
 func NewMockS3Client() *MockS3Client {

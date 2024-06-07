@@ -44,9 +44,9 @@ Usage of s3mover:
 $ s3mover -src /path/to/local -bucket mybucket -prefix myprefix/ -gzip
 ```
 
-1. s3mover watches the /path/to/local directory.
+1. s3mover watches the `/path/to/local` directory.
 2. When a new file is created in the directory, s3mover reads the file and uploads it to the mybucket bucket.
-   - The S3 key is myprefix/YYYY/MM/DD/HH/filename.gz.
+   - The S3 key is `myprefix/YYYY/MM/DD/HH/filename.gz`.
    - If the -gzip option is specified, the file is compressed with gzip before uploading.
 3. s3mover removes the file from the local directory after the upload is completed.
 4. s3mover repeats the above steps.
