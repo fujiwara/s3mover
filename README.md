@@ -8,11 +8,24 @@ It moves files from a local directory to an S3 bucket and is designed to run as 
 
 ### Limitations
 
-
 - s3mover does not support watching subdirectories, only the specified directory.
 - It reads the file as soon as it is created, so the file must be completely written at that time.
 - To avoid issues, write the file with a temporary name (starting with a dot) and rename it to the final name after the writing is complete.
 - s3mover ignores files whose names begin with a dot (.).
+
+## Installation
+
+### Binary
+
+[Releases](https://github.com/fujiwara/s3mover/releases)
+
+### Docker
+
+[ghcr.io/fujiwara/s3mover](https://github.com/fujiwara/s3mover/pkgs/container/s3mover)
+
+```console
+$ docker pull ghcr.io/fujiwara/s3mover:v0.0.3
+```
 
 ## Usage
 
