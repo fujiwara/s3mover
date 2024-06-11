@@ -1,4 +1,4 @@
-FROM --platform=${BUILDPLATFORM} golang:1.22.4-bullseye AS build-env
+FROM --platform=${BUILDPLATFORM} golang:1.22.4-bookwarm AS build-env
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -16,4 +16,5 @@ FROM alpine:3.19
 
 RUN apk --no-cache add ca-certificates
 COPY --from=build-env /go/src/github.com/fujiwara/s3mover /usr/bin
+VOLUME [ "/tmp/s3mover" ]
 WORKDIR /
