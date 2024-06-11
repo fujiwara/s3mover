@@ -24,8 +24,10 @@ It moves files from a local directory to an S3 bucket and is designed to run as 
 [ghcr.io/fujiwara/s3mover](https://github.com/fujiwara/s3mover/pkgs/container/s3mover)
 
 ```console
-$ docker pull ghcr.io/fujiwara/s3mover:v0.0.3
+$ docker pull ghcr.io/fujiwara/s3mover:v0.0.4
 ```
+
+This image defines `VOLUME` at `/tmp/s3mover`.
 
 ## Usage
 
